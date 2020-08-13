@@ -1,0 +1,22 @@
+{
+  "name": "stream-service",
+  "version": "0.0.1",
+  "description": "Mediasoup streaming server side of LotToLearn.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "npm start"
+  },
+  "keywords": [
+    "mediasoup",
+    "streaming",
+    "LotToLearn"
+  ],
+  "author": "FredTan",
+  "license": "MIT",
+  "dependencies": {
+    "awaitqueue": "^2.2.3",
+    "mediasoup": "^3.6.16",
+    "protoo-server": "^4.0.4"
+  }
+}
