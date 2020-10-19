@@ -6,7 +6,8 @@ const https = require('https');
 
 const url = require('url');
 const { AwaitQueue } = require('awaitqueue');
-const Classroom = require('./Classroom');
+const Logger = require('./lib/Logger');
+const Classroom = require('./lib/Classroom');
 
 const config = require('./config');
 const { numWorkers, workerSettings } = config.mediasoup;
@@ -18,8 +19,13 @@ const rooms = new Map(); // 保存房间的Map (roomId, Classroom)
 let workerPos = 0; // worker循环队列中当前指向的worker
 const queue = new AwaitQueue();
 
+// Loggers
+const mainLogger = new Logger('main');
+const workerLogger = new Logger('worker');
+const serverLogger = new Logger('server')
+
 // 运行 meaiasoup workers
-console.log('Starting mediasoup workers...');
+mainLogger.info('Starting mediasoup workers...');
 async function run() {
   for (let i = 0; i < numWorkers; i++) {
     const worker = await mediasoup.createWorker(
@@ -32,24 +38,30 @@ async function run() {
     );
 
     worker.on('died', () => {
-      console.log('mediasoup worker died, exiting');
+      mainLogger.error('mediasoup worker died, exiting... [%d]', worker.pid);
       process.exit(1);
     });
 
     workers.push(worker);
+
+    setInterval(async () => {
+      const usage = await worker.getResourceUsage();
+      workerLogger.info('resource usage [pid:%d]: %o', worker.pid, usage)
+    }, 120000);
   }
-  console.log('Started %d mediasoup workers', numWorkers);
+  mainLogger.info('Started %d mediasoup workers:', numWorkers);
+  workers.forEach(worker => mainLogger.info(worker.pid));
 }
 
 run();
 
-// 运行 protoo server
-console.log('Starting protoo server...')
 
+// 运行 protoo server
+serverLogger.info('Starting protoo server...');
 const tlsOptions = {
   cert: fs.readFileSync(config.https.cert),
   key: fs.readFileSync(config.https.key)
-}
+};
 signalServer = new protoo.WebSocketServer(
   https.createServer(tlsOptions).listen(listenPort, listenIp),
   {
@@ -59,20 +71,22 @@ signalServer = new protoo.WebSocketServer(
     fragmentationThreshold: 960000
   }
 );
+serverLogger.info('Started protoo server on port %d', listenPort);
 
 signalServer.on('connectionrequest', async (info, accept, reject) => {
   const u = url.parse(info.request.url, true);
   const roomId = u.query['roomId'];
   const peerId = u.query['peerId'];
   if (!roomId || !peerId) {
-    console.error('Connection request without roomId and/or peerId');
+    serverLogger.error('Connection request without roomId and/or peerId');
     reject(400, 'Connection request without roomId and/or peerId');
     return;
   }
 
-  console.info(
-    'protoo connection request [roomId:%s, peerId:%s, address:%s, origin:%s]',
-    roomId, peerId, info.socket.remoteAddress, info.origin);
+  serverLogger.info(
+    'connection [roomId: %s, peerId: %s, address: %s, origin: %s]',
+    roomId, peerId, info.socket.remoteAddress, info.origin
+  );
 
   // 使用awaitqueue防止多个用户同时请求同一个新房间
   queue.push(async () => {

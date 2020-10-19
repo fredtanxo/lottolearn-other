@@ -1,13 +1,13 @@
+const Logger = require('./Logger');
 const protoo = require('protoo-server');
 
-const config = require('./config');
+const config = require('../config');
 
 // 简单起见，直接继承protoo.Room，保存router和处理消息
 class Classroom extends protoo.Room {
   static async create(worker, roomId) {
     const { mediaCodecs } = config.mediasoup.routerOptions;
     const router = await worker.createRouter({ mediaCodecs });
-    console.info('Created room:', roomId);
     return new Classroom(router, roomId);
   }
 
@@ -16,15 +16,19 @@ class Classroom extends protoo.Room {
     this.router = router; // mediasoup的router
     this.isClosed = false; // 该聊天室是否已关闭
     this.roomId = roomId; // 房间ID
+    this.startTime = Date.now();
+    this.logger = new Logger(`room[${this.roomId}]`);
+    this.logger.info('Room created');
   }
 
   // 关闭房间，触发`roomClose`事件，index.js中的room则被相应清除
   closeRoom() {
     this.safeEmit('roomClose');
-    console.log('Close room:', this.roomId);
     this.isClosed = true;
     this.router.close();
     this.close();
+    const endTime = Date.now();
+    this.logger.info('Room closed. Opened for %d seconds', (endTime - this.startTime) / 1000);
   }
 
   // 处理protoo-client传来的消息
@@ -53,6 +57,7 @@ class Classroom extends protoo.Room {
       switch (request.method) {
       case 'getRouterRtpCapabilities':
         accept(this.router.rtpCapabilities);
+        this.logger.debug('Accepted request from peer %s: %o', peer.id, request);
         break;
       case 'createWebRtcTransport':
         this.handleCreateWebRtcTransport(peer, request, accept, reject);
@@ -105,6 +110,8 @@ class Classroom extends protoo.Room {
       if (this.peers.length === 0) {
         this.closeRoom();
       }
+
+      this.logger.debug('Peer %s closed', peer.id);
     });
   }
 
@@ -144,6 +151,8 @@ class Classroom extends protoo.Room {
     if (maxIncomingBitrate) {
       await transport.setMaxIncomingBitrate(maxIncomingBitrate);
     }
+
+    this.logger.debug('Created WebRTC transport for peer %s: %o', peer.id, request.data);
   }
 
   // peer 加入房间
@@ -196,6 +205,8 @@ class Classroom extends protoo.Room {
         avatar:   peer.data.avatar
       });
     }
+
+    this.logger.debug('Peer %s joined room with peers: %o', peer.id, joinedPeers);
   }
 
   async createConsumer({ consumerPeer, producerPeer, producer }) {
@@ -205,7 +216,7 @@ class Classroom extends protoo.Room {
         producerId: producer.id,
         rtpCapabilities: consumerPeer.data.rtpCapabilities
     })) {
-      console.log('can not consume');
+      this.logger.error('Can not consume %s for peer %s', producerPeer.id, consumerPeer.id);
       return;
     }
 
@@ -214,7 +225,7 @@ class Classroom extends protoo.Room {
       .find(t => t.appData.consuming);
 
     if (!transport) {
-      console.warn(
+      this.logger.warn(
         'Peer %s is supposed to consume but with no consuming transports',
         consumerPeer.id
       );
@@ -265,6 +276,8 @@ class Classroom extends protoo.Room {
     // 客户端就绪，resume
     await consumer.resume();
     consumerPeer.notify('consumerResumed', { consumerId: consumer.id });
+
+    this.logger.debug('Resumed %s comsumer for peer %s', consumer.kind, consumerPeer.id);
   }
 
   // 客户端连接到transport
@@ -275,6 +288,8 @@ class Classroom extends protoo.Room {
     await transport.connect({ dtlsParameters });
 
     accept();
+
+    this.logger.debug('Peer %s connected to WebRTCTransport', peer.id);
   }
 
   // 客户端produce
@@ -286,7 +301,7 @@ class Classroom extends protoo.Room {
     const { transportId, kind, rtpParameters } = request.data;
     let { appData } = request.data;
     const transport = peer.data.transports.get(transportId);
-    appData = { ...appData, peerId: peer.id }
+    appData = { ...appData, peerId: peer.id };
 
     const producer = await transport.produce({
       kind,
@@ -300,7 +315,7 @@ class Classroom extends protoo.Room {
     const joinedPeers = this.peers.filter(
       joinedPeer => joinedPeer.data.joined && joinedPeer.id !== peer.id
     );
-    // 通知其他peer去consume
+    // 通知其他peers去consume
     for (const joinedPeer of joinedPeers) {
       this.createConsumer({
         consumerPeer: joinedPeer,
@@ -308,6 +323,8 @@ class Classroom extends protoo.Room {
         producer
       });
     }
+
+    this.logger.debug('Peer %s produce %s', peer.id, producer.kind);
   }
 
   // 暂停produce
@@ -321,6 +338,8 @@ class Classroom extends protoo.Room {
     await producer.pause();
 
     accept();
+
+    this.logger.debug('Peer %s pause %s produce', peer.id, producer.kind);
   }
 
   // 暂停consume，前端分页用到
@@ -335,6 +354,8 @@ class Classroom extends protoo.Room {
     await consumer.pause();
 
     accept();
+
+    this.logger.debug('Peer %s pause %s comsume', peer.id, consumer.kind);
   }
 
   // 继续produce
@@ -349,6 +370,8 @@ class Classroom extends protoo.Room {
     await producer.resume();
 
     accept();
+
+    this.logger.debug('Peer %s resume %s produce', peer.id, producer.kind);
   }
 
   // 继续consume
@@ -363,6 +386,8 @@ class Classroom extends protoo.Room {
     await consumer.resume();
 
     accept();
+
+    this.logger.debug('Peer %s resume %s comsume', peer.id, consumer.kind);
   }
 
   // 停止produce
@@ -378,6 +403,8 @@ class Classroom extends protoo.Room {
     peer.data.producers.delete(producer.id);
 
     accept();
+
+    this.logger.debug('Peer %s close %s produce', peer.id, producer.kind);
   }
 }
 

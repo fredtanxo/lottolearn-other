@@ -1,11 +1,13 @@
 {
-  "name": "stream-service",
-  "version": "0.0.1",
+  "name": "lottolearn-stream-service",
+  "version": "1.0.0",
+  "private": true,
   "description": "Mediasoup streaming server side of LotToLearn.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "npm start"
+    "start": "DEBUG=${DEBUG:='*INFO* *WARN* *ERROR*'} node index.js",
+    "test": "DEBUG='*' npm start",
+    "lint": "eslint"
   },
   "keywords": [
     "mediasoup",
@@ -15,8 +17,10 @@
   "author": "FredTan",
   "license": "MIT",
   "dependencies": {
-    "awaitqueue": "^2.2.3",
-    "mediasoup": "^3.6.16",
+    "awaitqueue": "^2.3.0",
+    "debug": "^4.2.0",
+    "mediasoup": "^3.6.23",
     "protoo-server": "^4.0.4"
-  }
+  },
+  "devDependencies": {}
 }
